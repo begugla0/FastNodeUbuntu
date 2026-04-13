@@ -7,7 +7,8 @@
 module_ssh_key() {
     info "Настройка SSH ключей..."
 
-    read -p "Введите имя пользователя для SSH ключа (по умолчанию: root): " ssh_user
+    printf "Введите имя пользователя для SSH ключа (по умолчанию: root): "
+    read -r ssh_user </dev/tty
     [[ -z "${ssh_user}" ]] && ssh_user="root"
 
     if ! id "${ssh_user}" >/dev/null 2>&1; then
@@ -26,19 +27,28 @@ module_ssh_key() {
     chmod 700 "${ssh_dir}"
     chown "${ssh_user}:${ssh_user}" "${ssh_dir}"
 
-    > "${auth_keys}"
-
-    if [[ -n "${SSH_PUBLIC_KEY}" ]]; then
-        info "Используется SSH ключ из конфигурации"
-        echo -e "${SSH_PUBLIC_KEY}" >> "${auth_keys}"
+    if [[ -n "${SSH_PUBLIC_KEY:-}" ]]; then
+        info "Используется SSH ключ из settings.conf"
+        echo "${SSH_PUBLIC_KEY}" > "${auth_keys}"
     else
         echo ""
-        echo "Вставьте SSH публичный ключ (Enter дважды для завершения):"
+        echo -e "\033[1;33mВставьте свой публичный SSH ключ (ssh-rsa ... или ssh-ed25519 ...):\033[0m"
+        echo -e "\033[0;34mНажмите Enter дважды после вставки для завершения:\033[0m"
         echo "=========================================="
-        while IFS= read -r line; do
+
+        > "${auth_keys}"
+        local key_count=0
+        while true; do
+            read -r line </dev/tty
             [[ -z "${line}" ]] && break
             echo "${line}" >> "${auth_keys}"
+            (( key_count++ )) || true
         done
+
+        if [[ ${key_count} -eq 0 ]]; then
+            warn "Ни одного ключа не было добавлено!"
+            return 1
+        fi
     fi
 
     [[ ! -s "${auth_keys}" ]] && { warn "SSH ключ не добавлен!"; return 1; }
@@ -48,6 +58,7 @@ module_ssh_key() {
 
     command -v restorecon &>/dev/null && restorecon -R "${ssh_dir}" 2>/dev/null || true
 
+    info "Добавлено ключей: $(wc -l < "${auth_keys}")"
     success "SSH ключ(и) добавлен(ы) для: ${ssh_user}"
 }
 
