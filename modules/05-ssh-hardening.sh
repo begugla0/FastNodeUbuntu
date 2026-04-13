@@ -2,9 +2,8 @@
 #===============================================================================
 # Module 05: SSH Hardening — порт ${SSH_PORT}
 # Ubuntu 24 compatible (drop-in /etc/ssh/sshd_config.d/)
-# NOTE: Ubuntu 24 использует socket activation (ssh.socket),
-#       который держит порт 22 независимо от sshd_config.
-#       Необходимо отключить сокет и перезапустить ssh.service напрямую.
+# NOTE: Ubuntu 24 использует socket activation (ssh.socket).
+#       Файл должен загружаться последним — используем 99-zz-hardening.conf
 #===============================================================================
 
 module_ssh_hardening() {
@@ -12,7 +11,7 @@ module_ssh_hardening() {
 
     local sshd_config="/etc/ssh/sshd_config"
     local dropin_dir="/etc/ssh/sshd_config.d"
-    local dropin_file="${dropin_dir}/99-hardening.conf"
+    local dropin_file="${dropin_dir}/99-zz-hardening.conf"
     local backup="${sshd_config}.backup.$(date +%Y%m%d_%H%M%S)"
 
     cp "${sshd_config}" "${backup}"
@@ -22,20 +21,32 @@ module_ssh_hardening() {
     sed -i 's/^Port /#Port /' "${sshd_config}"
     sed -i 's/^PasswordAuthentication /#PasswordAuthentication /' "${sshd_config}"
 
+    # Удаляем конфликтующие записи из других drop-in файлов
+    # (99-local.conf и прочие могут переопределять Port и PasswordAuthentication)
+    for f in "${dropin_dir}"/*.conf; do
+        [[ "$(basename "${f}")" == "99-zz-hardening.conf" ]] && continue
+        [[ -f "${f}" ]] || continue
+        if grep -qE "^Port |^PasswordAuthentication " "${f}"; then
+            info "Убираю конфликты из $(basename "${f}")..."
+            sed -i 's/^Port /#Port /' "${f}"
+            sed -i 's/^PasswordAuthentication /#PasswordAuthentication /' "${f}"
+        fi
+    done
+
     mkdir -p "${dropin_dir}"
 
     # Автоопределение PasswordAuthentication
     local password_auth="yes"
     if [[ -s /root/.ssh/authorized_keys ]]; then
         password_auth="no"
-        info "Обнаружен authorized_keys — вход по паролю будет отключён (PasswordAuthentication no)"
+        info "Обнаружен authorized_keys — вход по паролю будет отключён"
     else
         warn "Нет authorized_keys — PasswordAuthentication останется yes"
     fi
 
     cat > "${dropin_file}" <<EOF
 # FastNodeUbuntu — SSH Hardening
-# Ubuntu 24 drop-in config
+# Ubuntu 24 drop-in config (loads last — 99-zz-hardening.conf)
 Port ${SSH_PORT}
 PermitRootLogin ${SSH_PERMIT_ROOT:-yes}
 PermitEmptyPasswords no
@@ -68,6 +79,7 @@ EOF
 
     systemctl restart ssh
     success "SSH перезапущен на порту ${SSH_PORT}"
+    info "Проверка: $(ss -tlnp | grep sshd || echo 'sshd не найден в ss')"
 
     echo ""
     warn "НЕ ЗАКРЫВАЙТЕ СЕССИЮ! Проверьте подключение к порту ${SSH_PORT}"
@@ -81,7 +93,8 @@ EOF
         cp "${backup}" "${sshd_config}"
         systemctl enable ssh.socket 2>/dev/null || true
         systemctl start ssh.socket 2>/dev/null || true
-        systemctl restart ssh
+        systemctl stop ssh
+        systemctl start ssh
         warn "Конфигурация SSH откачена на порт 22"
         return 1
     fi
