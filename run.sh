@@ -27,12 +27,8 @@ chmod +x "${TEMP_DIR}/main.sh"
 find "${TEMP_DIR}/modules" -name '*.sh' -exec chmod +x {} \;
 rm -rf "${TEMP_DIR}/.git"
 
-success "Репозиторий готов — запуск main.sh..."
+success "Репозиторий готов"
 
-# Передаём управление TTY напрямую — необходимо для интерактивного меню
-# при запуске через pipe (curl | bash) stdin занят pipe,
-# поэтому перепривязываем stdin к /dev/tty
-bash "${TEMP_DIR}/main.sh" </dev/tty
-
-info "Очистка..."
-rm -rf "${TEMP_DIR}"
+# Передаём SCRIPT_DIR через окружение, stdin редиректим на TTY
+export SCRIPT_DIR="${TEMP_DIR}"
+exec bash "${TEMP_DIR}/main.sh" </dev/tty
