@@ -4,8 +4,6 @@
 # Usage: curl -fsSL https://raw.githubusercontent.com/begugla0/FastNodeUbuntu/main/run.sh | bash
 #===============================================================================
 
-set -euo pipefail
-
 REPO_GIT_URL="${REPO_GIT_URL:-https://github.com/begugla0/FastNodeUbuntu.git}"
 TEMP_DIR="/tmp/FastNodeUbuntu-$$"
 
@@ -13,27 +11,28 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC
 
 info()    { echo -e "${BLUE}[INFO]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
-error()   { echo -e "${RED}[ERROR]${NC} $*"; }
+error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
 
 if ! command -v git &>/dev/null; then
     warn "git не найден — устанавливаем..."
-    apt-get update -y && apt-get install -y git
+    apt-get update -y && apt-get install -y git || error "Не удалось установить git"
 fi
 
 info "Клонирование ${REPO_GIT_URL}..."
 export GIT_TERMINAL_PROMPT=0
-git clone --depth 1 "${REPO_GIT_URL}" "${TEMP_DIR}"
+git clone --depth 1 "${REPO_GIT_URL}" "${TEMP_DIR}" || error "Не удалось клонировать репозиторий"
 
-# GitHub API не сохраняет chmod +x — устанавливаем явно
 chmod +x "${TEMP_DIR}/main.sh"
 find "${TEMP_DIR}/modules" -name '*.sh' -exec chmod +x {} \;
-
 rm -rf "${TEMP_DIR}/.git"
 
 success "Репозиторий готов — запуск main.sh..."
-cd "${TEMP_DIR}" && bash main.sh
 
-# Очистка после завершения main.sh
+# Передаём управление TTY напрямую — необходимо для интерактивного меню
+# при запуске через pipe (curl | bash) stdin занят pipe,
+# поэтому перепривязываем stdin к /dev/tty
+bash "${TEMP_DIR}/main.sh" </dev/tty
+
 info "Очистка..."
 rm -rf "${TEMP_DIR}"

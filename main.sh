@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 # FastNodeUbuntu — Ubuntu 24 Server Automation Script
-# Version: 1.0.0
+# Version: 1.0.1
 #===============================================================================
 
 set -euo pipefail
@@ -70,6 +70,7 @@ run_module() {
     local path="${MODULES_DIR}/${module}"
     if [[ -f "${path}" ]]; then
         info "━━ Модуль: ${module} ━━"
+        # shellcheck source=/dev/null
         source "${path}"
         success "Модуль ${module} — готово"
     else
@@ -110,7 +111,7 @@ main() {
     info "FastNodeUbuntu запущен"
     info "Ядро: $(uname -r)"
 
-    if [[ "${INTERACTIVE_MODE:-true}" == "false" ]] || [[ ! -t 0 ]]; then
+    if [[ "${INTERACTIVE_MODE:-true}" == "false" ]]; then
         info "Автоматический режим — запуск всех модулей"
         for mod in $(ls -1 "${MODULES_DIR}"/*.sh 2>/dev/null | sort); do
             run_module "$(basename "${mod}")"
@@ -118,15 +119,12 @@ main() {
     else
         show_menu
         local choice=""
+        # Читаем всегда из /dev/tty — работает даже при curl | bash
         while true; do
-            if [[ -e /dev/tty ]]; then
-                read -p "Выберите номер: " choice < /dev/tty
-            else
-                read -p "Выберите номер: " choice
-            fi
+            read -p "Выберите номер: " choice </dev/tty
             case "${choice}" in
                 2|3|4|5|6|7|111|222) break ;;
-                *) echo -e "${RED}Неверный выбор${NC}" ;;
+                *) echo -e "${RED}Неверный выбор. Введите номер из списка.${NC}" ;;
             esac
         done
 
@@ -138,6 +136,7 @@ main() {
             6)   run_module "06-swap-setup.sh"      ;;
             7)   run_module "07-packages.sh"        ;;
             111)
+                info "Запуск всех модулей..."
                 for mod in $(ls -1 "${MODULES_DIR}"/*.sh 2>/dev/null | sort); do
                     run_module "$(basename "${mod}")"
                 done
