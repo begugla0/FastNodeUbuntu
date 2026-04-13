@@ -5,22 +5,23 @@
 ## Быстрый старт
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/begugla0/FastNodeUbuntu/main/run.sh | bash
+```
+
+Или через git:
+
+```bash
 apt update && apt install -y git
 git clone https://github.com/begugla0/FastNodeUbuntu.git
 cd FastNodeUbuntu
-sudo ./main.sh
-```
-
-Или одной командой:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/begugla0/FastNodeUbuntu/main/run.sh | bash
+chmod +x main.sh modules/*.sh
+bash main.sh
 ```
 
 ## Автоматический режим (все модули)
 
 ```bash
-INTERACTIVE_MODE=false sudo ./main.sh
+INTERACTIVE_MODE=false bash main.sh
 ```
 
 ## Модули

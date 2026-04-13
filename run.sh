@@ -27,10 +27,12 @@ fi
 info "Клонирование ${REPO_GIT_URL}..."
 export GIT_TERMINAL_PROMPT=0
 git clone --depth 1 "${REPO_GIT_URL}" "${TEMP_DIR}"
+
+# Устанавливаем права исполнения явно (GitHub API не сохраняет chmod +x)
+chmod +x "${TEMP_DIR}/main.sh"
+find "${TEMP_DIR}/modules" -name '*.sh' -exec chmod +x {} \;
+
 rm -rf "${TEMP_DIR}/.git"
 
-chmod +x "${TEMP_DIR}/main.sh"
-chmod +x "${TEMP_DIR}/modules/"*.sh 2>/dev/null || true
-
 success "Репозиторий готов — запуск main.sh..."
-cd "${TEMP_DIR}" && sudo bash main.sh
+cd "${TEMP_DIR}" && bash main.sh
