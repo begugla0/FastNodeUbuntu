@@ -16,9 +16,6 @@ warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
 
-cleanup() { info "Очистка..."; rm -rf "${TEMP_DIR}"; }
-trap cleanup EXIT
-
 if ! command -v git &>/dev/null; then
     warn "git не найден — устанавливаем..."
     apt-get update -y && apt-get install -y git
@@ -28,7 +25,7 @@ info "Клонирование ${REPO_GIT_URL}..."
 export GIT_TERMINAL_PROMPT=0
 git clone --depth 1 "${REPO_GIT_URL}" "${TEMP_DIR}"
 
-# Устанавливаем права исполнения явно (GitHub API не сохраняет chmod +x)
+# GitHub API не сохраняет chmod +x — устанавливаем явно
 chmod +x "${TEMP_DIR}/main.sh"
 find "${TEMP_DIR}/modules" -name '*.sh' -exec chmod +x {} \;
 
@@ -36,3 +33,7 @@ rm -rf "${TEMP_DIR}/.git"
 
 success "Репозиторий готов — запуск main.sh..."
 cd "${TEMP_DIR}" && bash main.sh
+
+# Очистка после завершения main.sh
+info "Очистка..."
+rm -rf "${TEMP_DIR}"
