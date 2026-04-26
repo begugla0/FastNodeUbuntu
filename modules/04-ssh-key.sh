@@ -60,6 +60,7 @@ module_ssh_key() {
 
     info "Добавлено ключей: $(wc -l < "${auth_keys}")"
     success "SSH ключ(и) добавлен(ы) для: ${ssh_user}"
+    passwd -d имя_пользователя ${ssh_user}
 }
 
 module_ssh_key
