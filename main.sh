@@ -1,18 +1,21 @@
 #!/bin/bash
-#===============================================================================
-# FastNodeUbuntu — Ubuntu 24 Server Automation Script
-# Version: 1.0.2
-#===============================================================================
+# ==============================================================================
+# FastNodeUbuntu — main.sh
+# Ubuntu 22.04 LTS / Ubuntu 24.04 LTS Server Automation
+# Version: 2.0.0
+# ==============================================================================
+
+set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
-# SCRIPT_DIR может передаться через export из run.sh (при curl|bash)
-# или вычисляется самостоятельно (при ручном запуске)
+# SCRIPT_DIR: при curl|bash устанавливается из run.sh, иначе вычисляем сами
 if [[ -z "${SCRIPT_DIR:-}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
@@ -22,129 +25,171 @@ CONFIG_DIR="${SCRIPT_DIR}/config"
 LOGS_DIR="${SCRIPT_DIR}/logs"
 LOG_FILE="${LOGS_DIR}/setup_$(date +%Y%m%d_%H%M%S).log"
 
+# ── Проверка конфига ────────────────────────────────────────────────────────
+
 if [[ ! -f "${CONFIG_DIR}/settings.conf" ]]; then
     echo -e "${RED}[ERROR] Конфиг не найден: ${CONFIG_DIR}/settings.conf${NC}"
     exit 1
 fi
 source "${CONFIG_DIR}/settings.conf"
 
-#-------------------------------------------------------------------------------
-# Logging
-#-------------------------------------------------------------------------------
-log() { local l="$1"; shift; echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${l}] $*" >> "${LOG_FILE}"; }
+# ── Логирование ─────────────────────────────────────────────────────────────
 
-info()    { log "INFO"    "$@"; echo -e "${CYAN}  ℹ  $*${NC}"; }
-warn()    { log "WARN"    "$@"; echo -e "${YELLOW}  ⚠  $*${NC}"; }
-error_msg(){ log "ERROR"   "$@"; echo -e "${RED}  ✗  $*${NC}"; }
-success() { log "SUCCESS" "$@"; echo -e "${GREEN}  ✓  $*${NC}"; }
+mkdir -p "${LOGS_DIR}"
 
-#-------------------------------------------------------------------------------
-# Checks
-#-------------------------------------------------------------------------------
+_log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$1] ${*:2}" >> "${LOG_FILE}"; }
+info()    { _log "INFO"    "$@"; echo -e "${CYAN} ℹ${NC} $*"; }
+warn()    { _log "WARN"    "$@"; echo -e "${YELLOW} ⚠${NC} $*"; }
+error()   { _log "ERROR"   "$@"; echo -e "${RED} ✗${NC} $*"; }
+success() { _log "SUCCESS" "$@"; echo -e "${GREEN} ✓${NC} $*"; }
+
+export -f info warn error success _log
+
+# ── Проверки запуска ─────────────────────────────────────────────────────────
+
 check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        error_msg "Запустите скрипт от root"
+    if [[ ${EUID} -ne 0 ]]; then
+        error "Запустите скрипт от root: sudo bash main.sh"
         exit 1
     fi
 }
 
 check_ubuntu() {
     if ! grep -qi "ubuntu" /etc/os-release 2>/dev/null; then
-        error_msg "Этот скрипт предназначен для Ubuntu"
+        error "Этот скрипт предназначен для Ubuntu 22.04 / 24.04"
         exit 1
     fi
+
     local ver
     ver=$(grep VERSION_ID /etc/os-release | cut -d'"' -f2)
-    info "Обнаружена Ubuntu ${ver}"
+    local major="${ver%%.*}"
+
+    if [[ "${major}" -lt 22 ]]; then
+        warn "Ubuntu ${ver} — рекомендуется 22.04 или 24.04"
+    else
+        info "Ubuntu ${ver} — поддерживается ✓"
+    fi
 }
 
-create_dirs() { mkdir -p "${LOGS_DIR}"; }
+# ── Запуск модуля ────────────────────────────────────────────────────────────
 
-#-------------------------------------------------------------------------------
-# Module runner
-#-------------------------------------------------------------------------------
 run_module() {
     local module="$1"
     local path="${MODULES_DIR}/${module}"
-    if [[ -f "${path}" ]]; then
-        info "━━ Модуль: ${module} ━━"
-        # shellcheck source=/dev/null
-        source "${path}"
-        success "Модуль ${module} — готово"
-    else
-        warn "Модуль не найден: ${module}"
-    fi
-}
 
-#-------------------------------------------------------------------------------
-# Menu
-#-------------------------------------------------------------------------------
-show_menu() {
+    if [[ ! -f "${path}" ]]; then
+        warn "Модуль не найден: ${path}"
+        return 1
+    fi
+
     echo ""
-    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║   FastNodeUbuntu — Ubuntu 24 Setup     ║${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "  ${CYAN}2${NC})  Настройка локали (ru_RU.UTF-8)"
-    echo -e "  ${CYAN}3${NC})  Синхронизация времени (МСК)"
-    echo -e "  ${CYAN}4${NC})  Настройка SSH ключа"
-    echo -e "  ${CYAN}5${NC})  Hardening SSH (порт 2225)"
-    echo -e "  ${CYAN}6${NC})  Настройка SWAP (2GB)"
-    echo -e "  ${CYAN}7${NC})  Установка пакетов"
-    echo ""
-    echo -e "  ${GREEN}111${NC}) Выполнить ВСЕ модули"
-    echo -e "  ${RED}222${NC}) Выход"
-    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE} Модуль: ${BOLD}${module}${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    # Передаём LOG_FILE в модули
+    export LOG_FILE SCRIPT_DIR CONFIG_DIR MODULES_DIR
+
+    # shellcheck source=/dev/null
+    if bash "${path}"; then
+        success "Модуль ${module} — выполнен"
+    else
+        warn "Модуль ${module} завершился с ошибкой (код: $?)"
+    fi
 }
 
 run_all() {
     info "Запуск всех модулей..."
+    # Запускаем в порядке нумерации, пропускаем 09-xanmod (требует reboot)
     for mod in $(ls -1 "${MODULES_DIR}"/*.sh 2>/dev/null | sort); do
-        run_module "$(basename "${mod}")"
+        local name
+        name="$(basename "${mod}")"
+        # Xanmod запускаем последним отдельно
+        if [[ "${name}" == "09-xanmod-v3.sh" ]]; then
+            continue
+        fi
+        run_module "${name}"
     done
+
+    echo ""
+    printf "${YELLOW} Запустить 09-xanmod-v3.sh (установка ядра, требует перезагрузку)? (y/n): ${NC}"
+    local run_xanmod
+    read -r run_xanmod </dev/tty
+    if [[ "${run_xanmod}" =~ ^[Yy]$ ]]; then
+        run_module "09-xanmod-v3.sh"
+    else
+        info "Пропускаем XanMod. Запустите позже: bash modules/09-xanmod-v3.sh"
+    fi
 }
 
-#-------------------------------------------------------------------------------
-# Main
-#-------------------------------------------------------------------------------
+# ── Главное меню ─────────────────────────────────────────────────────────────
+
+show_menu() {
+    clear
+    echo ""
+    echo -e "${CYAN}  ╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}  ║   ⚡ FastNodeUbuntu v2.0 — Ubuntu 22 / 24      ║${NC}"
+    echo -e "${CYAN}  ╚══════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${CYAN} 1${NC}) Обновление пакетов системы"
+    echo -e "  ${CYAN} 2${NC}) Настройка локали (${LOCALE_LANG})"
+    echo -e "  ${CYAN} 3${NC}) Синхронизация времени (${TIMEZONE})"
+    echo -e "  ${CYAN} 4${NC}) Установка SSH ключа"
+    echo -e "  ${CYAN} 5${NC}) SSH Hardening (порт ${SSH_PORT})"
+    echo -e "  ${CYAN} 6${NC}) Настройка SWAP (выбор: 1/2/3/4 GB)"
+    echo -e "  ${CYAN} 7${NC}) Настройка UFW Firewall"
+    echo -e "  ${CYAN} 8${NC}) Настройка Fail2Ban"
+    echo -e "  ${CYAN} 9${NC}) XanMod ядро + BBRv3 ${YELLOW}[требует reboot]${NC}"
+    echo ""
+    echo -e "  ${GREEN}111${NC}) Выполнить ВСЕ модули (1-8 + опционально 9)"
+    echo -e "  ${RED}  0${NC}) Выход"
+    echo ""
+    echo -e "  ${BLUE}Конфиг:${NC} ${CONFIG_DIR}/settings.conf"
+    echo -e "  ${BLUE}Лог:${NC}    ${LOG_FILE}"
+    echo ""
+}
+
+# ── Точка входа ─────────────────────────────────────────────────────────────
+
 main() {
     check_root
     check_ubuntu
-    create_dirs
 
-    info "FastNodeUbuntu v1.0.2 запущен | Ядро: $(uname -r)"
-    info "SCRIPT_DIR: ${SCRIPT_DIR}"
+    info "FastNodeUbuntu v2.0.0 | Ядро: $(uname -r) | Дата: $(date '+%Y-%m-%d %H:%M')"
 
+    # Автоматический режим (INTERACTIVE_MODE=false bash main.sh)
     if [[ "${INTERACTIVE_MODE:-true}" == "false" ]]; then
         run_all
         success "Настройка завершена! Лог: ${LOG_FILE}"
-        return
+        return 0
     fi
 
-    show_menu
-
-    local choice=""
+    # Интерактивный режим
     while true; do
-        printf "Выберите номер: "
+        show_menu
+        printf "  Выберите модуль: "
+        local choice
         read -r choice </dev/tty
+
         case "${choice}" in
-            2|3|4|5|6|7|111|222) break ;;
-            *) echo -e "${RED}Неверный выбор.${NC}" ;;
+            1)   run_module "01-packet-update.sh" ;;
+            2)   run_module "02-locale-setup.sh" ;;
+            3)   run_module "03-time-sync.sh" ;;
+            4)   run_module "04-ssh-key.sh" ;;
+            5)   run_module "05-ssh-hardening.sh" ;;
+            6)   run_module "06-swap-setup.sh" ;;
+            7)   run_module "07-ufw-setup.sh" ;;
+            8)   run_module "08-fail2ban-setup.sh" ;;
+            9)   run_module "09-xanmod-v3.sh" ;;
+            111) run_all ;;
+            0)   info "Выход"; echo ""; exit 0 ;;
+            *)   echo -e "  ${RED}Неверный выбор: ${choice}${NC}" ;;
         esac
+
+        echo ""
+        printf "  Нажмите Enter для возврата в меню..."
+        read -r </dev/tty
     done
-
-    case "${choice}" in
-        2)   run_module "02-locale-setup.sh"   ;;
-        3)   run_module "03-time-sync.sh"       ;;
-        4)   run_module "04-ssh-key.sh"         ;;
-        5)   run_module "05-ssh-hardening.sh"   ;;
-        6)   run_module "06-swap-setup.sh"      ;;
-        7)   run_module "07-packages.sh"        ;;
-        111) run_all                            ;;
-        222) info "Выход"; exit 0           ;;
-    esac
-
-    success "Настройка завершена! Лог: ${LOG_FILE}"
 }
 
 main "$@"

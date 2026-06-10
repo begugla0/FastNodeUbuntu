@@ -1,48 +1,66 @@
 #!/bin/bash
-#===============================================================================
-# Module 02: Locale Setup — ru_RU.UTF-8
-# Ubuntu 24 compatible
-# NOTE: localectl set-locale отклоняет LC_ALL через D-Bus в systemd 255+
-#       Используем только LANG через localectl, остальное — напрямую в файл
-#===============================================================================
+# ==============================================================================
+# Module 02: Настройка локали (ru_RU.UTF-8)
+# Поддержка: Ubuntu 22.04 LTS / Ubuntu 24.04 LTS
+# ==============================================================================
+
+if ! declare -f info > /dev/null 2>&1; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+    CYAN='\033[0;36m'; NC='\033[0m'
+    info()    { echo -e "${CYAN} ℹ ${*}${NC}"; }
+    warn()    { echo -e "${YELLOW} ⚠ ${*}${NC}"; }
+    success() { echo -e "${GREEN} ✓ ${*}${NC}"; }
+    error()   { echo -e "${RED} ✗ ${*}${NC}"; exit 1; }
+fi
+
+if [[ -z "${LOCALE_LANG:-}" ]]; then
+    _BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    [[ -f "${_BASE_DIR}/config/settings.conf" ]] && source "${_BASE_DIR}/config/settings.conf"
+fi
 
 module_locale_setup() {
-    info "Настройка локали ru_RU.UTF-8..."
+    info "Настройка локали..."
 
-    # Установка пакета locales если нет
-    if ! dpkg -s locales &>/dev/null 2>&1; then
-        info "Устанавливаем пакет locales..."
-        DEBIAN_FRONTEND=noninteractive apt-get install -y locales
+    local lang="${LOCALE_LANG:-ru_RU.UTF-8}"
+    local charset="${LOCALE_CHARSET:-UTF-8}"
+
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Устанавливаем locales если нет
+    if ! dpkg -l locales &>/dev/null; then
+        info "Установка пакета locales..."
+        apt-get install -y locales
     fi
 
-    # Включаем ru_RU.UTF-8 в locale.gen
-    if ! grep -q "^ru_RU.UTF-8 UTF-8" /etc/locale.gen 2>/dev/null; then
-        sed -i 's/^# *ru_RU.UTF-8 UTF-8/ru_RU.UTF-8 UTF-8/' /etc/locale.gen
-        # Если строки вообще нет — добавляем
-        grep -q "^ru_RU.UTF-8 UTF-8" /etc/locale.gen || echo "ru_RU.UTF-8 UTF-8" >> /etc/locale.gen
+    # Активируем нужную локаль в locale.gen
+    info "Активация локали ${lang}..."
+    if grep -q "^# ${lang} ${charset}" /etc/locale.gen 2>/dev/null; then
+        sed -i "s/^# ${lang} ${charset}/${lang} ${charset}/" /etc/locale.gen
+    elif ! grep -q "^${lang} ${charset}" /etc/locale.gen 2>/dev/null; then
+        echo "${lang} ${charset}" >> /etc/locale.gen
     fi
 
-    locale-gen ru_RU.UTF-8
+    # Генерируем локаль
+    info "Генерация локали..."
+    locale-gen
 
-    # localectl принимает только LANG (не LC_ALL) начиная с systemd 255
-    localectl set-locale LANG=ru_RU.UTF-8 || warn "localectl set-locale не сработал, продолжаем..."
-
-    # Пишем /etc/default/locale напрямую — надёжный способ для Ubuntu 24
+    # Записываем /etc/default/locale
+    info "Применение настроек локали..."
     cat > /etc/default/locale <<EOF
-LANG=ru_RU.UTF-8
-LANGUAGE=ru_RU:ru
-LC_ALL=ru_RU.UTF-8
+LANG=${lang}
+LANGUAGE=${lang}
+LC_ALL=${lang}
 EOF
 
-    # Применяем для текущей сессии
-    export LANG="ru_RU.UTF-8"
-    export LANGUAGE="ru_RU:ru"
-    export LC_ALL="ru_RU.UTF-8"
+    # Для текущей сессии
+    export LANG="${lang}"
+    export LANGUAGE="${lang}"
+    export LC_ALL="${lang}"
 
-    info "Проверка:"
-    locale | grep -E "LANG|LC_ALL" || true
+    # update-locale для системы (Ubuntu)
+    update-locale LANG="${lang}" LANGUAGE="${lang}" LC_ALL="${lang}" 2>/dev/null || true
 
-    success "Локаль установлена: ru_RU.UTF-8"
+    success "Локаль настроена: ${lang}"
 }
 
 module_locale_setup

@@ -1,44 +1,66 @@
 #!/bin/bash
-#===============================================================================
-# Module 03: Time Synchronization — Europe/Moscow (МСК)
-# Ubuntu 24 compatible
-# NOTE: timedatectl set-ntp работает только с systemd-timesyncd.
-#       Мы используем chrony — NTP управляется независимо.
-#===============================================================================
+# ==============================================================================
+# Module 03: Синхронизация времени (chrony)
+# Поддержка: Ubuntu 22.04 LTS / Ubuntu 24.04 LTS
+# ==============================================================================
+
+if ! declare -f info > /dev/null 2>&1; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+    CYAN='\033[0;36m'; NC='\033[0m'
+    info()    { echo -e "${CYAN} ℹ ${*}${NC}"; }
+    warn()    { echo -e "${YELLOW} ⚠ ${*}${NC}"; }
+    success() { echo -e "${GREEN} ✓ ${*}${NC}"; }
+    error()   { echo -e "${RED} ✗ ${*}${NC}"; exit 1; }
+fi
+
+if [[ -z "${TIMEZONE:-}" ]]; then
+    _BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    [[ -f "${_BASE_DIR}/config/settings.conf" ]] && source "${_BASE_DIR}/config/settings.conf"
+fi
 
 module_time_sync() {
-    info "Настройка синхронизации времени (МСК)..."
+    info "Настройка синхронизации времени..."
 
-    timedatectl set-timezone "Europe/Moscow"
+    local tz="${TIMEZONE:-Europe/Moscow}"
 
-    # Отключаем systemd-timesyncd (конфликтует с chrony)
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Устанавливаем chrony (точнее и надёжнее, чем systemd-timesyncd)
+    info "Установка chrony..."
+    apt-get install -y chrony
+
+    # Отключаем системный timesyncd (конфликтует с chrony)
     if systemctl is-active --quiet systemd-timesyncd 2>/dev/null; then
-        info "Отключение systemd-timesyncd..."
-        systemctl stop systemd-timesyncd || true
-        systemctl disable systemd-timesyncd || true
+        info "Отключаем systemd-timesyncd..."
+        systemctl disable --now systemd-timesyncd 2>/dev/null || true
     fi
 
-    DEBIAN_FRONTEND=noninteractive apt-get install -y chrony
+    # Устанавливаем часовой пояс
+    info "Установка часового пояса: ${tz}..."
+    timedatectl set-timezone "${tz}"
 
+    # Включаем и запускаем chrony
     systemctl enable chrony
     systemctl restart chrony
 
-    # Подождём пока chrony поднялся
+    # Форсируем немедленную синхронизацию
     sleep 2
-    chronyc -a makestep 2>/dev/null || warn "makestep: сервер ещё не готов, NTP синхронизация выполнится в фоне"
+    info "Принудительная синхронизация..."
+    chronyc -a makestep 2>/dev/null || \
+        chronyc makestep 2>/dev/null || \
+        warn "Принудительная синхронизация не удалась (chrony ещё запускается)"
 
+    # Проверка
     info "Текущее время: $(date)"
-    info "Часовой пояс:  $(timedatectl | grep 'Time zone')"
+    info "Часовой пояс: $(timedatectl show --property=Timezone --value 2>/dev/null || timedatectl | grep 'Time zone' | awk '{print $3}')"
 
-    # Проверка статуса chrony
     if systemctl is-active --quiet chrony; then
-        info "chrony: $(systemctl is-active chrony) (используется вместо timedatectl NTP)"
-        chronyc tracking 2>/dev/null | grep -E "Reference|Stratum|RMS" || true
+        success "chrony запущен и синхронизирован"
     else
-        warn "chrony не запущен!"
+        warn "chrony не запустился — проверьте: journalctl -u chrony"
     fi
 
-    success "Время синхронизировано: МСК (Europe/Moscow)"
+    success "Синхронизация времени настроена"
 }
 
 module_time_sync
